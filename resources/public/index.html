@@ -1,0 +1,102 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>danneu/speed-reader</title>
+<link rel="stylesheet" type="text/css" href="style.css">
+<script src="speed_reader.js"></script>
+
+<div id="sheet"></div>
+
+<div class="controls">
+  <button id="start">Start</button>
+  <button id="stop" disabled="true">Stop</button>
+  <button id="reset">Reset</button>
+</div>
+
+<div class="controls">
+  <label>Progress</label>
+  <input id="progress-slider"
+         class="slider"
+         type="range"
+         min="0" max="0" value="0">
+  <div class="meta">
+    <span id="progress-slider-display"></span>
+  </div>
+</div>
+
+<div class="controls">
+  <label>WPM</label>
+  <input id="wpm-slider"
+         class="slider"
+         type="range"
+         min="100" max="5000" value="300" step="50">
+  <div class="meta">
+  <span id="wpm-slider-display">300</span>
+  <span id="read-time">
+    (<span id="read-time-seconds"></span> secs total)
+    </span>
+  </div>
+</div>
+
+<div class="controls">
+  <label>Chunk size</label>
+  <input id="chunk-slider"
+         class="slider"
+         type="range"
+         min="1" max="6" value="1">
+  <div class="meta">
+  <span id="chunk-slider-display">1</span>
+  <span id="chunk-time">
+    (<span id="chunk-time-ms"></span>ms/chunk)
+  </span>
+  </div>
+</div>
+
+<div class="controls">
+  <label>Font size</label>
+  <input id="font-size-slider"
+         class="slider"
+         type="range"
+         min="50"
+         max="1000"
+         value="200"
+         step="10">
+  <div class="meta">
+  <span id="font-size-slider-display">200</span>%
+  </div>
+</div>
+
+<div class="controls">
+  <textarea id="content">Speed reading programs are available through courses, both in person or software based, and manuals. While the average adult reading rate is 250 words per minute with 70% comprehension, speed reading programs typically claim that improvements to 500 words per minute or more while maintaining or improving comprehension are possible.
+
+One point of difference between the various speed reading courses is the assertions concerning subvocalization. Some courses claim that the main obstacle to speed reading is any form of subvocalization. Although absence of subvocalization might not improve reading speed, its presence might obstruct high speed. These statements are equally valid, since there is no evidence that less subvocalization can improve reading or even can willingly be changed at all. Other courses claim that subvocalization can be used on keywords in order to speed up learning and reading.
+
+Speed reading courses and books take a variety of approaches to the concept of reading comprehension. Some courses and books claim that good comprehension is essential to speed reading, and that comprehension will improve with speed reading. Special non-standardized reading comprehension questionnaires are provided in order to convince the reader of the effects of the program. Some courses advise that while comprehension is important, it should not be measured or promoted. Speed reading courses variously claim that not all information in text needs to be covered while speed reading. Some claim that speed reading involves skipping text (exactly as has been measured during studies on skimming), whereas other speed reading promoters claim that all of the text is processed, but with some or most becoming subconsciously processed. Similarly, some courses claim that text should be serially processed whereas others say that information should be processed in a more haphazard or ad hoc fashion.</textarea>
+  <br>
+  <button id="load">Load</button>
+  <div id="words"></div>
+</div>
+
+<div id="debug" style="text-align: center;">
+  word-idx: <span id="word-idx">--</span>
+  chunk-idx: <span id="chunk-idx">--</span>
+</div>
+
+<div id="about">
+  inspired by <a href="http://spreeder.com/">spreeder</a><br>
+  <a href="http://github.com/danneu/speed-reader">github</a><br>
+</div>
+
+<!--Shortcuts: (TODO)
+<ul>
+<li>Speed up: +</li>
+<li>Slow down: -</li>
+<li>Go back a little bit: Left Arrow or H</li>
+<li>Go forward a little bit: Right Arrow or L</li>
+<li>Increase font size: Up Arrow</li>
+<li>Decrase font size: Down Arrow</li>
+</ul>-->
+
+
+
+<script>speed_reader.core.main()</script>
+</html>

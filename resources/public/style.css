@@ -1,0 +1,35 @@
+#sheet {
+  font-size: 200%;
+  text-align: center;
+  height: 150px;
+  line-height: 150px;
+}
+.slider {
+  width: 25%;
+}
+.controls {
+  font-family: verdana;
+  text-align: center;
+  margin: 1em;
+}
+textarea {
+  width: 500px;
+  height: 200px;
+}
+.controls label,
+.controls input,
+.controls .meta{
+  display: inline-block;
+  width: 300px;
+}
+.controls label {
+  text-align: right;
+  margin-right: 10px;
+}
+.controls .meta {
+  text-align: left;
+  margin-left: 10px;
+}
+#about {
+  text-align: center;
+}
