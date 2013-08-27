@@ -1,10 +1,16 @@
 (ns speed-reader.core
-  (:require [cljs.core.async :as async :refer [<! >! chan close! go]]
-            [domina :as domina :refer [by-id sel set-attr!
-                                       set-text! text value set-value!
-                                       set-styles! remove-attr!]]
-            [domina.events :as events :refer [listen!]])
-  (:require-macros [cljs.core.async.macros :as macros :refer [go alt!]]))
+  (:require [cljs.core.async :refer [<! >! chan close! go]]
+            [domina :refer [by-id
+                            remove-attr!
+                            sel
+                            set-attr!
+                            set-styles!
+                            set-text!
+                            set-value!
+                            text
+                            value]]
+            [domina.events :refer [listen! target]])
+  (:require-macros [cljs.core.async.macros :refer [go alt!]]))
 
 ;; Util ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -174,19 +180,19 @@
   (listen! (by-id "progress-slider")
            :change
            (fn [evt]
-             (let [new-word-idx (-> evt events/target .-value int)]
+             (let [new-word-idx (-> evt target value int)]
                (go (>! c [:scrub new-word-idx])))))
 
   (listen! (by-id "chunk-slider")
            :change
            (fn [evt]
-             (let [new-chunk-size (-> evt events/target .-value int)]
+             (let [new-chunk-size (-> evt target value int)]
                (go (>! c [:chunk-size new-chunk-size])))))
 
   (listen! (by-id "wpm-slider")
            :change
            (fn [evt]
-             (let [new-wpm (-> evt events/target .-value int)]
+             (let [new-wpm (-> evt target value int)]
                (go (>! c [:wpm new-wpm]))))))
 
 (defn parse-content-box
@@ -204,7 +210,7 @@
     (listen! slider-el
              :change
              (fn [evt]
-               (let [el-value (-> evt events/target .-value int)]
+               (let [el-value (-> evt target value int)]
                  (log (str ":change " input-id " - " el-value))
                  (set-text! display-el el-value))))))
 
@@ -219,7 +225,7 @@
   (listen! (by-id "font-size-slider")
            :change
            (fn [evt]
-             (let [new-size (-> evt events/target .-value)]
+             (let [new-size (-> evt target value)]
                (set-styles! (by-id "sheet")
                             {:font-size (str new-size "%")}))))
 
