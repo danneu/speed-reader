@@ -23,7 +23,7 @@ My first naive idea was what I would've written five years ago:
 
 But that is severely underwhelming. And after months of Clojure experience, it made me feel naughty.
 
-Fortunately, dnolen on #clojure wrote my a [snippet using clojure/core.async](https://gist.github.com/swannodette/6330038):
+Fortunately, dnolen on #clojure wrote me a [snippet using clojure/core.async](https://gist.github.com/swannodette/6330038):
 
 ``` clojure
 (defn words-proc [words button interval interval-control scrub]
@@ -52,21 +52,25 @@ But now that I've got it to a working state, I have an idea of how it should wor
 
 The app logic should be contained to a single process that exposes no state. The whole of it runs asynchronously in a `go` block.
 
-```
+``` clojure
 (defn iterator [text] 
   (go ...))
 ```
 
 The UI is hooked up to the iterator through a channel. The iterator returns this channel when you instantiate it on page load.
 
-```
+``` clojure
 (defn iterator [text] 
   (let [c (chan)]
     (go ...)
     c))
 ```
 
-Your UI sends commands to this channel in the form of [cmd & args]: `[:start]`, `[:stop]`, `[:scrub 42]` (seek to the 42nd chunk), etc.
+Your UI sends commands to this channel in the form of `[cmd & args]`. For example, here are some of them:
+
+- `[:start]`
+- `[:stop]`
+- `[:scrub 42]` (seek to the 42nd chunk)
 
 ``` clojure
 (listen! (by-id "start") :click #(go (>! c [:start])))
@@ -74,7 +78,7 @@ Your UI sends commands to this channel in the form of [cmd & args]: `[:start]`, 
 (listen! (by-id "scrub") :change #(go (>! c [:scrub (-> % target value int)])))
 ```
 
-Right now the iterator calls an `update-ui` each loop that violates the above premise, so I'm thinking of adding a second channel to the iterator for iterator's output.
+Right now the iterator calls an `update-ui` function each loop that violates the above premise, so I'm thinking of adding a second channel to the iterator to communicate back to the UI layer.
 
 ``` clojure
 (defn iterator [text] 
