@@ -28,6 +28,14 @@
   [word-idx chunk-size]
   (quot word-idx chunk-size))
 
+;; HTML util
+
+(defn disable [el]
+  (set-attr! el "disabled" true))
+
+(defn enable [el]
+  (remove-attr! el "disabled"))
+
 ;; Iterator ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn stop-ticker
@@ -274,9 +282,9 @@
                       (set-text! (by-id "chunk-idx") chunk-idx)
 
                       ;; Start/Stop buttons
-                      (if ticker
-                        (do (set-attr! (by-id "start") "disabled" true)
-                            (remove-attr! (by-id "stop") "disabled"))
-                        (do (remove-attr! (by-id "start") "disabled")
-                            (set-attr! (by-id "stop") "disabled" true))))))
+                      (if (< chunk-idx chunk-count)
+                        (if ticker
+                          (do (disable $start) (enable $stop))
+                          (do (enable $start) (disable $stop)))
+                        (do (disable $start) (disable $stop))))))
           (recur)))))
