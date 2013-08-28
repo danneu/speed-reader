@@ -44,11 +44,7 @@ His proposal looked awesome so I decided to jump in, use ClojureScript, and run 
 
 ## The implementation
 
-I didn't really have a high-level concept in mind as I was coding this app since I was faking it til I made it.
-
-But now that I've got it to a working state, I have an idea of how it should work after some refactorings.
-
-### The dream
+I don't know any client-side best practices, so I attempted to come up with a high-level design that at least made sense.
 
 The app logic should be contained to a single process that exposes no state. The whole of it runs asynchronously in a `go` block.
 
@@ -57,28 +53,32 @@ The app logic should be contained to a single process that exposes no state. The
   (go ...))
 ```
 
-The UI is hooked up to the iterator through a channel. The iterator returns this channel when you instantiate it on page load.
+The UI is hooked up to the iterator through two channels:
+
+- `input` channel for sending commands to the iterator
+- `output` for getting real-time state of the iterator
 
 ``` clojure
 (defn iterator [text] 
-  (let [c (chan)]
+  (let [in (chan)
+        out (chan)]
     (go ...)
-    c))
+    {:in in :out out))
 ```
 
-Your UI sends commands to this channel in the form of `[cmd & args]`. For example, here are some of them:
+Your UI sends commands to the `in` channel in the form of `[cmd & args]`. For example, here are some of them:
 
 - `[:start]`
 - `[:stop]`
 - `[:scrub 42]` (seek to the 42nd chunk)
 
 ``` clojure
-(listen! (by-id "start") :click #(go (>! c [:start])))
-(listen! (by-id "start") :click #(go (>! c [:stop])))
-(listen! (by-id "scrub") :change #(go (>! c [:scrub (-> % target value int)])))
+(listen! (by-id "start") :click #(go (>! in [:start])))
+(listen! (by-id "start") :click #(go (>! in [:stop])))
+(listen! (by-id "scrub") :change #(go (>! in [:scrub (-> % target value int)])))
 ```
 
-Right now the iterator calls an `update-ui` function each loop that violates the above premise, so I'm thinking of adding a second channel to the iterator to communicate back to the UI layer.
+Here's a more complete pseudocodey demonstration of the core idea I was going for:
 
 ``` clojure
 (defn iterator [text] 
@@ -107,17 +107,9 @@ Right now the iterator calls an `update-ui` function each loop that violates the
             (recur))))))
 ```
 
-Something like that.
-
 In other words, the iterator doesn't need to know about the UI, and the UI doesn't need to know about the iterator beyond its simple command API.
-
-### The reality
-
-Right now it's not quite implemented that way but it's not far off. 
-
-For instance, not everything is encapsulated in `iterator` and UI updates are unfocused and aimless.
 
 ## Issues
 
-- Poor performance. Completely unoptimized. Not even DOM lookups are cached and I have extraneous computation that doesn't need to be calculated each loop.
+- Poor, unoptimized performance at high WPM and low chunk-size. This is due to extraneous calculations that happen every tick that should be refactored so that they only recalculate when necessary.
 
