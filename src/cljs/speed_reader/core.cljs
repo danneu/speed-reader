@@ -107,7 +107,7 @@
                                   new-chunks (partition new-chunk-size words)]
                               (recur (merge state {:chunks new-chunks
                                                    :chunk-count (count new-chunks)
-                                                   :chunk-idx (calc-chunk-idx word-idx chunk-size)
+                                                   :chunk-idx (calc-chunk-idx word-idx new-chunk-size)
                                                    :chunk-size new-chunk-size
                                                    :ticker (stop-ticker ticker)})))
 
