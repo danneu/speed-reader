@@ -45,72 +45,87 @@
 (defn iterator
   [words]
   (let [in (chan)
-        out (chan)]
-    (go (loop [chunk-size 1
+        out (chan)
+        word-count (count words)]
+    ;; Loop state sorta grew out of control in an effort to isolate recalculation.
+    ;; It feels ugly lugging around both chunk-idx and word-idx, but maintaining
+    ;; word-idx makes it less surprising for user when they change chunk-size.
+    (go (loop [chunks (partition 1 words)
+               chunk-idx 0
+               chunk-size 1
                word-idx 0
                wpm 300
                ticker nil]
-          ;; TODO: Move calculations into loop state so that
-          ;;       recalc only needs to happen when necessary.
-          (let [chunk-idx (calc-chunk-idx word-idx chunk-size)
-                chunks (partition chunk-size words)]
+          (if (< chunk-idx (count chunks))
+            (>! out [:tick {:chunk (nth chunks chunk-idx)
+                            :chunk-idx chunk-idx
+                            :chunk-count (count chunks)
+                            :chunk-size chunk-size
+                            :ticker ticker
+                            :word-count word-count
+                            :word-idx word-idx
+                            :wpm wpm}])
+            (do (log "Out of range") (stop-ticker ticker)))
 
-            (if (< chunk-idx (count chunks))
-              (>! out [:tick {:chunk (nth chunks chunk-idx)
-                              :chunk-idx chunk-idx
-                              :chunk-count (count chunks)
-                              :chunk-size chunk-size
-                              :ticker ticker
-                              :word-count (count words)
-                              :word-idx word-idx
-                              :wpm wpm}])
-              (do (log "Out of range") (stop-ticker ticker)))
-
-            (let [[cmd & args] (<! in)]
-              (condp = cmd
-                ;; [:start wpm chunk-size]
-                :start (let [[wpm chunk-size] args
-                             delay (calc-delay wpm chunk-size)]
-                         (recur chunk-size
-                                word-idx
-                                wpm
-                                (restart-ticker in ticker delay)))
-                ;; [:stop]
-                :stop (recur chunk-size
-                             word-idx
-                             wpm
-                             (stop-ticker ticker))
-                ;; [:reset]
-                :reset (recur chunk-size
-                              0
+          (let [[cmd & args] (<! in)]
+            (condp = cmd
+              ;; [:start wpm chunk-size]
+              :start (let [[wpm chunk-size] args
+                           delay (calc-delay wpm chunk-size)]
+                       (recur (partition chunk-size words)
+                              chunk-idx
+                              chunk-size
+                              word-idx
                               wpm
-                              (stop-ticker ticker))
-                ;; [:tick]
-                :tick (recur chunk-size
-                             (+ word-idx chunk-size)
-                             wpm
-                             ticker)
+                              (restart-ticker in ticker delay)))
+              ;; [:stop]
+              :stop (recur chunks
+                           chunk-idx
+                           chunk-size
+                           word-idx
+                           wpm
+                           (stop-ticker ticker))
+              ;; [:reset]
+              :reset (recur chunks
+                            0
+                            chunk-size
+                            0
+                            wpm
+                            (stop-ticker ticker))
+              ;; [:tick]
+              :tick (recur chunks
+                           (inc chunk-idx)
+                           chunk-size
+                           (+ word-idx chunk-size)
+                           wpm
+                           ticker)
 
-                ;; [:tick new-word-idx]
-                :scrub (let [[new-word-idx] args]
-                         (recur chunk-size
-                                new-word-idx
-                                wpm
-                                (stop-ticker ticker)))
+              ;; [:tick new-word-idx]
+              :scrub (let [[new-word-idx] args]
+                       (recur chunks
+                              (calc-chunk-idx new-word-idx chunk-size)
+                              chunk-size
+                              new-word-idx
+                              wpm
+                              (stop-ticker ticker)))
 
-                ;; [:chunk-size new-chunk-size]
-                :chunk-size (let [[new-chunk-size] args]
-                              (recur new-chunk-size
-                                     word-idx
-                                     wpm
-                                     (stop-ticker ticker)))
+              ;; [:chunk-size new-chunk-size]
+              :chunk-size (let [[new-chunk-size] args]
+                            (recur chunks
+                                   (calc-chunk-idx word-idx new-chunk-size)
+                                   new-chunk-size
+                                   word-idx
+                                   wpm
+                                   (stop-ticker ticker)))
 
-                ;; [:wpm new-wpm]
-                :wpm  (let [[new-wpm] args]
-                        (recur chunk-size
-                               word-idx
-                               new-wpm
-                               (stop-ticker ticker))))))))
+              ;; [:wpm new-wpm]
+              :wpm  (let [[new-wpm] args]
+                      (recur chunks
+                             chunk-idx
+                             chunk-size
+                             word-idx
+                             new-wpm
+                             (stop-ticker ticker)))))))
     {:in in :out out}))
 
 (defn parse-content-box
@@ -132,9 +147,9 @@
 
   ;; The rest of these events are UI events that aren't attached to the iterator.
 
-  (listen! (by-id "load")
-           :click
-           #(attach-ui (iterator (parse-content-box))))
+  ;; (listen! (by-id "load")
+  ;;          :click
+  ;;          #(attach-ui (iterator (parse-content-box))))
 
   ;; Update font size of $sheet
 
