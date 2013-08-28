@@ -54,99 +54,67 @@
   [words]
   (let [in (chan)
         out (chan)
-        word-count (count words)]
+        word-count (count words)
+        initial-chunks (partition 1 words)]
     ;; Loop state sorta grew out of control in an effort to isolate recalculation.
     ;; It feels ugly lugging around both chunk-idx and word-idx, but maintaining
     ;; word-idx makes it less surprising for user when they change chunk-size.
-    (go (loop [chunks (partition 1 words)
-               chunk-count (count chunks)
-               chunk-idx 0
-               chunk-size 1
-               word-idx 0
-               wpm 300
-               ticker nil]
+    (go (loop [state {:chunks initial-chunks
+                      :chunk-count (count initial-chunks)
+                      :chunk-idx 0
+                      :chunk-size 1
+                      :word-idx 0
+                      :wpm 300
+                      :ticker nil}]
+          (let [{:keys [chunks chunk-count chunk-idx chunk-size word-idx wpm ticker]} state]
 
-          ;; Stop ticker when iteration reaches end. But send one last :tick through out-channel.
-          (>! out [:tick {:chunk (nth chunks chunk-idx (last chunks))
-                          :chunk-idx chunk-idx
-                          :chunk-count chunk-count
-                          :chunk-size chunk-size
-                          :ticker (if (< chunk-idx chunk-count)
-                                    ticker
-                                    (do (log "Out of range")
-                                        (stop-ticker ticker)))
-                          :word-count word-count
-                          :word-idx word-idx
-                          :wpm wpm}])
+            ;; Stop ticker when iteration reaches end. But send one last :tick through out-channel.
+            (>! out [:tick (merge state {:chunk (nth chunks chunk-idx (last chunks))
+                                         :word-count word-count
+                                         :ticker (if (< chunk-idx chunk-count)
+                                                   ticker
+                                                   (stop-ticker ticker))})])
 
-          (let [[cmd & args] (<! in)]
-            (condp = cmd
-              ;; [:start wpm chunk-size]
-              :start (let [[wpm chunk-size] args
-                           delay (calc-delay wpm chunk-size)
-                           start-chunks (partition chunk-size words)]
-                       (recur start-chunks
-                              (count start-chunks)
-                              chunk-idx
-                              chunk-size
-                              word-idx
-                              wpm
-                              (restart-ticker in ticker delay)))
-              ;; [:stop]
-              :stop (recur chunks
-                           chunk-count
-                           chunk-idx
-                           chunk-size
-                           word-idx
-                           wpm
-                           (stop-ticker ticker))
-              ;; [:reset]
-              :reset (recur chunks
-                            chunk-count
-                            0
-                            chunk-size
-                            0
-                            wpm
-                            (stop-ticker ticker))
-              ;; [:tick]
-              :tick (recur chunks
-                           chunk-count
-                           (inc chunk-idx)
-                           chunk-size
-                           (+ word-idx chunk-size)
-                           wpm
-                           ticker)
+            (let [[cmd & args] (<! in)]
+              (condp = cmd
+                ;; [:start wpm chunk-size]
+                :start (let [[wpm chunk-size] args
+                             delay (calc-delay wpm chunk-size)
+                             start-chunks (partition chunk-size words)]
+                         (recur (merge state {:chunks start-chunks
+                                              :chunk-count (count start-chunks)
+                                              :wpm wpm
+                                              :chunk-size chunk-size
+                                              :ticker (restart-ticker in ticker delay)})))
+                ;; [:stop]
+                :stop (recur (merge state {:ticker (stop-ticker ticker)}))
+                ;; [:reset]
+                :reset (recur (merge state {:chunk-idx 0
+                                            :word-idx 0
+                                            :ticker (stop-ticker ticker)}))
+                ;; [:tick]
+                :tick (recur (merge state {:chunk-idx (inc chunk-idx)
+                                           :word-idx (+ word-idx chunk-size)}))
 
-              ;; [:tick new-word-idx]
-              :scrub (let [[new-word-idx] args]
-                       (recur chunks
-                              chunk-count
-                              (calc-chunk-idx new-word-idx chunk-size)
-                              chunk-size
-                              new-word-idx
-                              wpm
-                              (stop-ticker ticker)))
+                ;; [:tick new-word-idx]
+                :scrub (let [[new-word-idx] args]
+                         (recur (merge state {:chunk-idx (calc-chunk-idx new-word-idx chunk-size)
+                                              :word-idx new-word-idx
+                                              :ticker (stop-ticker ticker)})))
 
-              ;; [:chunk-size new-chunk-size]
-              :chunk-size (let [[new-chunk-size] args
-                                new-chunks (partition new-chunk-size words)]
-                            (recur new-chunks
-                                   (count new-chunks)
-                                   (calc-chunk-idx word-idx new-chunk-size)
-                                   new-chunk-size
-                                   word-idx
-                                   wpm
-                                   (stop-ticker ticker)))
+                ;; [:chunk-size new-chunk-size]
+                :chunk-size (let [[new-chunk-size] args
+                                  new-chunks (partition new-chunk-size words)]
+                              (recur (merge state {:chunks new-chunks
+                                                   :chunk-count (count new-chunks)
+                                                   :chunk-idx (calc-chunk-idx word-idx chunk-size)
+                                                   :chunk-size new-chunk-size
+                                                   :ticker (stop-ticker ticker)})))
 
-              ;; [:wpm new-wpm]
-              :wpm  (let [[new-wpm] args]
-                      (recur chunks
-                             chunk-count
-                             chunk-idx
-                             chunk-size
-                             word-idx
-                             new-wpm
-                             (stop-ticker ticker)))))))
+                ;; [:wpm new-wpm]
+                :wpm  (let [[new-wpm] args]
+                        (recur (merge state {:ticker (stop-ticker ticker)
+                                             :wpm new-wpm}))))))))
     {:in in :out out}))
 
 (defn parse-content-box
@@ -247,23 +215,17 @@
         $progress-chunk-idx (by-id "progress-chunk-idx")
         $progress-chunk-count (by-id "progress-chunk-count")
         $read-time-seconds (by-id "read-time-seconds")
-        $chunk-time-ms (by-id "chunk-time-ms")]
+        $chunk-time-ms (by-id "chunk-time-ms")
+        $start (by-id "start")
+        $stop (by-id "stop")]
     (go (loop []
           (let [[cmd & args] (<! out)]
-            ;;(log (str "OUT: [" cmd " " (clojure.string/join " " args) "]"))
+            ;; (log (str "OUT: [" cmd " " (clojure.string/join " " args) "]"))
             (condp = cmd
               ;; I ended up cramming all of the iterator's state into a single
               ;; :tick command, but I may want to split up the state into
               ;; multiple commands.
-              :tick (let [[{:keys [chunk
-                                   chunk-count
-                                   chunk-idx
-                                   chunk-size
-                                   ticker
-                                   word-count
-                                   word-idx
-                                   wpm]}] args]
-
+              :tick (let [[{:keys [chunk chunk-count chunk-idx chunk-size ticker word-count word-idx wpm]}] args]
                       ;; Current chunk
                       (set-text! $sheet (clojure.string/join " " chunk))
                       (set-value! $progress-slider chunk-idx)
