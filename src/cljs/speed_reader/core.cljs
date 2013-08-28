@@ -28,172 +28,91 @@
   [word-idx chunk-size]
   (quot word-idx chunk-size))
 
-(defn update-debug-ui [word-idx chunk-idx]
-  (set-text! (by-id "word-idx") word-idx)
-  (set-text! (by-id "chunk-idx") chunk-idx))
+;; Iterator ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; Ticker ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn stop-ticker
+  "Turns off ticker. Returns nil."
+  [ticker]
+  (js/clearInterval ticker)
+  nil)
 
-(defn update-ticker-ui
-  "Updates Start/Stop button state."
-  [state]
-  (if (= state :on)
-    (do (set-attr! (by-id "start") "disabled" true)
-        (remove-attr! (by-id "stop") "disabled"))
-    (do (remove-attr! (by-id "start") "disabled")
-        (set-attr! (by-id "stop") "disabled" true))))
-
-(def ticker (atom nil))
-
-(defn stop-ticker []
-  (when @ticker
-    (js/clearInterval @ticker)
-    (update-ticker-ui :off)))
-
-(defn restart-ticker [ch delay]
-  (stop-ticker)  ; Only allow a single ticker to exist.
-  (reset! ticker
-          (js/setInterval (fn [] (go (>! ch [:tick])))
-                          delay))
-  (update-ticker-ui :on))
-
-;; General UI ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defn update-ui
-  [chunks chunk-idx]
-
-  ;; Update displayed chunks in #sheet
-  (set-text! (by-id "sheet")
-             (clojure.string/join " " (nth chunks chunk-idx)))
-
-  ;; Update #progress-slider since it scrubs itself as the reader reads.
-  (set-value! (by-id "progress-slider") chunk-idx)
-  (set-attr! (by-id "progress-slider") "max" (dec (count chunks)))
-
-  ;; Update #progress-slider-display
-  (set-text! (by-id "progress-slider-display")
-             (str (inc chunk-idx) "/" (count chunks)))
-
-  )
-
-;; Iterator process ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defn restart-ticker
+  "Returns ticker that will tick at given delay."
+  [c ticker delay]
+  (stop-ticker ticker)  ; Only allow a single ticker to exist.
+  (js/setInterval #(go (>! c [:tick])) delay))
 
 (defn iterator
-  "The core idea is to have the iterator as a process that you hook up to your
-   UI with core.async channel.
-
-   Returns a channel that expects commands in form of [command & args]."
   [words]
-  (let [c (chan)]
+  (let [in (chan)
+        out (chan)]
     (go (loop [chunk-size 1
                word-idx 0
-               wpm 300]
+               wpm 300
+               ticker nil]
+          ;; TODO: Move calculations into loop state so that
+          ;;       recalc only needs to happen when necessary.
           (let [chunk-idx (calc-chunk-idx word-idx chunk-size)
                 chunks (partition chunk-size words)]
 
-
-            ;; TODO: Have iterator send its iteration through a channel
-            ;;       so view layer can update itself.
-            (update-debug-ui word-idx chunk-idx)
-            (set-text! (by-id "read-time-seconds")
-                       (int (* (/ (count words) wpm) 60)))
-            (set-text! (by-id "chunk-time-ms")
-                       (int (calc-delay wpm chunk-size)))
-            ;; /extralazy section
-
             (if (< chunk-idx (count chunks))
-              (update-ui chunks chunk-idx)
-              (do (log "Out of range") (stop-ticker)))
+              (>! out [:tick {:chunk (nth chunks chunk-idx)
+                              :chunk-idx chunk-idx
+                              :chunk-count (count chunks)
+                              :chunk-size chunk-size
+                              :ticker ticker
+                              :word-count (count words)
+                              :word-idx word-idx
+                              :wpm wpm}])
+              (do (log "Out of range") (stop-ticker ticker)))
 
-            (let [[cmd & args] (<! c)]
+            (let [[cmd & args] (<! in)]
               (condp = cmd
                 ;; [:start wpm chunk-size]
                 :start (let [[wpm chunk-size] args
                              delay (calc-delay wpm chunk-size)]
-                         (do (restart-ticker c delay)
-                             (recur chunk-size
-                                    word-idx
-                                    wpm)))
+                         (recur chunk-size
+                                word-idx
+                                wpm
+                                (restart-ticker in ticker delay)))
                 ;; [:stop]
-                :stop (do (stop-ticker)
-                          (recur chunk-size
-                                 word-idx
-                                 wpm))
+                :stop (recur chunk-size
+                             word-idx
+                             wpm
+                             (stop-ticker ticker))
                 ;; [:reset]
-                :reset (do (stop-ticker)
-                           (recur chunk-size
-                                  0
-                                  wpm))
+                :reset (recur chunk-size
+                              0
+                              wpm
+                              (stop-ticker ticker))
                 ;; [:tick]
                 :tick (recur chunk-size
                              (+ word-idx chunk-size)
-                             wpm)
+                             wpm
+                             ticker)
 
                 ;; [:tick new-word-idx]
                 :scrub (let [[new-word-idx] args]
                          (stop-ticker)
                          (recur chunk-size
                                 new-word-idx
-                                wpm))
+                                wpm
+                                ticker))
 
                 ;; [:chunk-size new-chunk-size]
                 :chunk-size (let [[new-chunk-size] args]
-                              (stop-ticker)
-                              ;(restart-ticker c delay)
                               (recur new-chunk-size
                                      word-idx
-                                     wpm))
+                                     wpm
+                                     (stop-ticker ticker)))
 
                 ;; [:wpm new-wpm]
                 :wpm  (let [[new-wpm] args]
-                        (stop-ticker)
                         (recur chunk-size
                                word-idx
-                               new-wpm)))))))
-
-    ;; Behold, the levitating c.
-    
-    c
-
-    ))
-
-(defn attach-ui
-  "Attaches events to an iterator's command channel."
-  [c]
-  (listen! (by-id "start")
-           :click
-           (fn []
-             (let [wpm (int (value (by-id "wpm-slider")))
-                   chunk-size (int (value (by-id "chunk-slider")))]
-               (go (>! c [:start wpm chunk-size])))))
-
-  (listen! (by-id "stop")
-           :click
-           (fn []
-             (go (>! c [:stop]))))
-  
-  (listen! (by-id "reset")
-           :click
-           (fn []
-             (go (>! c [:reset]))))
-
-  (listen! (by-id "progress-slider")
-           :change
-           (fn [evt]
-             (let [new-word-idx (-> evt target value int)]
-               (go (>! c [:scrub new-word-idx])))))
-
-  (listen! (by-id "chunk-slider")
-           :change
-           (fn [evt]
-             (let [new-chunk-size (-> evt target value int)]
-               (go (>! c [:chunk-size new-chunk-size])))))
-
-  (listen! (by-id "wpm-slider")
-           :change
-           (fn [evt]
-             (let [new-wpm (-> evt target value int)]
-               (go (>! c [:wpm new-wpm]))))))
+                               new-wpm
+                               (stop-ticker ticker))))))))
+    {:in in :out out}))
 
 (defn parse-content-box
   "Returns vector of words from the content box."
@@ -202,38 +121,135 @@
     (remove empty? (vec (.split content #"\s+")))))
 
 ;; TODO: Decide on how to organize my events. Haven't given it much thought.
-(defn slider-updater
-  "A lame abstraction."
-  [input-id]
-  (let [slider-el (by-id input-id)
-        display-el (by-id (str input-id "-display"))]
-    (listen! slider-el
-             :change
-             (fn [evt]
-               (let [el-value (-> evt target value int)]
-                 (log (str ":change " input-id " - " el-value))
-                 (set-text! display-el el-value))))))
+
+(declare attach-input-ui attach-output-ui)
 
 (defn ^:export main []
   ;; TODO: Improve the split and handle weird cases. Strip various punctuation. etc.
   (let [words (parse-content-box)
-        c (iterator words)]
-    (attach-ui c))
+        {in :in out :out} (iterator words)]
+    (attach-input-ui in)
+    (attach-output-ui out))
 
-  ;; These are UI events that aren't attached to the iterator.
+  ;; The rest of these events are UI events that aren't attached to the iterator.
+
+  (listen! (by-id "load")
+           :click
+           #(attach-ui (iterator (parse-content-box))))
+
+  ;; Update font size of $sheet
 
   (listen! (by-id "font-size-slider")
            :change
            (fn [evt]
              (let [new-size (-> evt target value)]
-               (set-styles! (by-id "sheet")
-                            {:font-size (str new-size "%")}))))
+               (set-styles! (by-id "sheet") {:font-size (str new-size "%")}))))
 
-  (listen! (by-id "load")
+  ;; Update the slider display UI when user changes slider.
+
+  (listen! (by-id "wpm-slider")
+           :change
+           #(set-text! (by-id "wpm-slider-display") (-> % target value)))
+
+  (listen! (by-id "chunk-slider")
+           :change
+           #(set-text! (by-id "chunk-slider-display") (-> % target value)))
+
+  (listen! (by-id "font-size-slider")
+           :change
+           #(set-text! (by-id "font-size-slider-display") (-> % target value))))
+
+(defn attach-input-ui
+  "Attaches events to an iterator's command channel."
+  [in]
+  (listen! (by-id "start")
            :click
-           (fn [evt]
-             (attach-ui (iterator (parse-content-box)))))
+           (fn []
+             (let [wpm (int (value (by-id "wpm-slider")))
+                   chunk-size (int (value (by-id "chunk-slider")))]
+               (go (>! in [:start wpm chunk-size])))))
 
-  (slider-updater "wpm-slider")
-  (slider-updater "chunk-slider")
-  (slider-updater "font-size-slider"))
+  (listen! (by-id "stop")
+           :click
+           (fn []
+             (go (>! in [:stop]))))
+  
+  (listen! (by-id "reset")
+           :click
+           (fn []
+             (go (>! in [:reset]))))
+
+  ;; User is scrubbing to a new chunk.
+  (listen! (by-id "progress-slider")
+           :change
+           (fn [evt]
+             (let [new-word-idx (-> evt target value int)]
+               (go (>! in [:scrub new-word-idx])))))
+
+  ;; User is changing the chunk-size.
+  (listen! (by-id "chunk-slider")
+           :change
+           (fn [evt]
+             (let [new-chunk-size (-> evt target value int)]
+               (go (>! in [:chunk-size new-chunk-size])))))
+
+  ;; User is changing WPM.
+  (listen! (by-id "wpm-slider")
+           :change
+           (fn [evt]
+             (let [new-wpm (-> evt target value int)]
+               (go (>! in [:wpm new-wpm]))))))
+
+
+(defn attach-output-ui
+  "Hook up iterator `out` channel to UI"
+  [out]
+  ;; This loop consumes data from the iterator's `out` channel and
+  ;; updates the UI.
+  (let [;; Cache element lookup
+        $sheet (by-id "sheet")
+        $progress-slider (by-id "progress-slider")
+        $progress-chunk-idx (by-id "progress-chunk-idx")
+        $progress-chunk-count (by-id "progress-chunk-count")
+        $read-time-seconds (by-id "read-time-seconds")
+        $chunk-time-ms (by-id "chunk-time-ms")]
+    (go (loop []
+          (let [[cmd & args] (<! out)]
+            ;;(log (str "OUT: [" cmd " " (clojure.string/join " " args) "]"))
+            (condp = cmd
+              ;; I ended up cramming all of the iterator's state into a single
+              ;; :tick command, but I may want to split up the state into
+              ;; multiple commands.
+              :tick (let [[{:keys [chunk
+                                   chunk-count
+                                   chunk-idx
+                                   chunk-size
+                                   ticker
+                                   word-count
+                                   word-idx
+                                   wpm]}] args]
+
+                      ;; Current chunk
+                      (set-text! $sheet (clojure.string/join " " chunk))
+                      (set-value! $progress-slider chunk-idx)
+                      (set-text! $progress-chunk-idx chunk-idx)
+
+                      ;; Chunk count
+                      (set-text! $progress-chunk-count chunk-count)
+                      (set-attr! $progress-slider "max" (dec chunk-count))
+
+                      ;; Time calculations
+                      (set-text! $read-time-seconds (int (* (/ word-count wpm) 60)))
+                      (set-text! $chunk-time-ms (int (calc-delay wpm chunk-size)))
+
+                      ;; Debug
+                      (set-text! (by-id "word-idx") word-idx)
+                      (set-text! (by-id "chunk-idx") chunk-idx)
+
+                      ;; Start/Stop buttons
+                      (if ticker
+                        (do (set-attr! (by-id "start") "disabled" true)
+                            (remove-attr! (by-id "stop") "disabled"))
+                        (do (remove-attr! (by-id "start") "disabled")
+                            (set-attr! (by-id "stop") "disabled" true))))))
+          (recur)))))
