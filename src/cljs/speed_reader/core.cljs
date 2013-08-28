@@ -51,28 +51,34 @@
     ;; It feels ugly lugging around both chunk-idx and word-idx, but maintaining
     ;; word-idx makes it less surprising for user when they change chunk-size.
     (go (loop [chunks (partition 1 words)
+               chunk-count (count chunks)
                chunk-idx 0
                chunk-size 1
                word-idx 0
                wpm 300
                ticker nil]
-          (if (< chunk-idx (count chunks))
-            (>! out [:tick {:chunk (nth chunks chunk-idx)
-                            :chunk-idx chunk-idx
-                            :chunk-count (count chunks)
-                            :chunk-size chunk-size
-                            :ticker ticker
-                            :word-count word-count
-                            :word-idx word-idx
-                            :wpm wpm}])
-            (do (log "Out of range") (stop-ticker ticker)))
+
+          ;; Stop ticker when iteration reaches end. But send one last :tick through out-channel.
+          (>! out [:tick {:chunk (nth chunks chunk-idx (last chunks))
+                          :chunk-idx chunk-idx
+                          :chunk-count chunk-count
+                          :chunk-size chunk-size
+                          :ticker (if (< chunk-idx chunk-count)
+                                    ticker
+                                    (do (log "Out of range")
+                                        (stop-ticker ticker)))
+                          :word-count word-count
+                          :word-idx word-idx
+                          :wpm wpm}])
 
           (let [[cmd & args] (<! in)]
             (condp = cmd
               ;; [:start wpm chunk-size]
               :start (let [[wpm chunk-size] args
-                           delay (calc-delay wpm chunk-size)]
-                       (recur (partition chunk-size words)
+                           delay (calc-delay wpm chunk-size)
+                           start-chunks (partition chunk-size words)]
+                       (recur start-chunks
+                              (count start-chunks)
                               chunk-idx
                               chunk-size
                               word-idx
@@ -80,6 +86,7 @@
                               (restart-ticker in ticker delay)))
               ;; [:stop]
               :stop (recur chunks
+                           chunk-count
                            chunk-idx
                            chunk-size
                            word-idx
@@ -87,6 +94,7 @@
                            (stop-ticker ticker))
               ;; [:reset]
               :reset (recur chunks
+                            chunk-count
                             0
                             chunk-size
                             0
@@ -94,6 +102,7 @@
                             (stop-ticker ticker))
               ;; [:tick]
               :tick (recur chunks
+                           chunk-count
                            (inc chunk-idx)
                            chunk-size
                            (+ word-idx chunk-size)
@@ -103,6 +112,7 @@
               ;; [:tick new-word-idx]
               :scrub (let [[new-word-idx] args]
                        (recur chunks
+                              chunk-count
                               (calc-chunk-idx new-word-idx chunk-size)
                               chunk-size
                               new-word-idx
@@ -110,8 +120,10 @@
                               (stop-ticker ticker)))
 
               ;; [:chunk-size new-chunk-size]
-              :chunk-size (let [[new-chunk-size] args]
-                            (recur chunks
+              :chunk-size (let [[new-chunk-size] args
+                                new-chunks (partition new-chunk-size words)]
+                            (recur new-chunks
+                                   (count new-chunks)
                                    (calc-chunk-idx word-idx new-chunk-size)
                                    new-chunk-size
                                    word-idx
@@ -121,6 +133,7 @@
               ;; [:wpm new-wpm]
               :wpm  (let [[new-wpm] args]
                       (recur chunks
+                             chunk-count
                              chunk-idx
                              chunk-size
                              word-idx
