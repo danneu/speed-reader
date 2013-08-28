@@ -93,11 +93,10 @@
 
                 ;; [:tick new-word-idx]
                 :scrub (let [[new-word-idx] args]
-                         (stop-ticker)
                          (recur chunk-size
                                 new-word-idx
                                 wpm
-                                ticker))
+                                (stop-ticker ticker)))
 
                 ;; [:chunk-size new-chunk-size]
                 :chunk-size (let [[new-chunk-size] args]
